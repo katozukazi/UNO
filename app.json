@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "cab4c5bd-d7be-4e76-9a80-ba5eac1638b5"
+      }
+    },
+    "android": {
+      "package": "com.katozukazi.unoclient"
+    }
+  }
+}
