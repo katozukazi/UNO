@@ -6,10 +6,16 @@ import {
   TouchableOpacity,
   Image,
   Modal,
-  Button,
+  Pressable,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+  Layout,
+} from "react-native-reanimated";
 
-// Import card images
+// Card assets
 const cardImages = {
   // Red Numbers
   red_0: require("./assets/cards/Red_0.jpg"),
@@ -80,26 +86,21 @@ const cardImages = {
   wild: require("./assets/cards/Wild.jpg"),
   wild_draw4: require("./assets/cards/Wild_Draw_4.jpg"),
 
-  // Card back
+  // Back
   back: require("./assets/cards/back.jpg"),
 };
 
-// Helper functions
+// Helpers
 const getRandomCard = () => {
   const keys = Object.keys(cardImages).filter((k) => k !== "back");
   return keys[Math.floor(Math.random() * keys.length)];
 };
-
 const isPlayable = (card, topCard, chosenColor) => {
   if (!card || !topCard) return false;
   if (card.startsWith("wild")) return true;
-  const [cardColor, cardValue] = card.split("_");
-  const [topColor, topValue] = topCard.split("_");
-  return (
-    cardColor === topColor ||
-    cardValue === topValue ||
-    (chosenColor && cardColor === chosenColor)
-  );
+  const [cColor, cVal] = card.split("_");
+  const [tColor, tVal] = topCard.split("_");
+  return cColor === tColor || cVal === tVal || (chosenColor && cColor === chosenColor);
 };
 
 export default function App() {
@@ -119,9 +120,7 @@ export default function App() {
     let player = Array(7).fill(null).map(getRandomCard);
     let opponent = Array(7).fill(null).map(getRandomCard);
     let startCard = getRandomCard();
-    while (startCard.startsWith("wild")) {
-      startCard = getRandomCard();
-    }
+    while (startCard.startsWith("wild")) startCard = getRandomCard();
     setPlayerHand(player);
     setOpponentHand(opponent);
     setDiscardPile([startCard]);
@@ -131,81 +130,88 @@ export default function App() {
 
   const topCard = discardPile[discardPile.length - 1];
 
+  const pickBestColor = (hand) => {
+    const colorCount = { red: 0, green: 0, blue: 0, yellow: 0 };
+    hand.forEach((c) => {
+      const [color] = c.split("_");
+      if (colorCount[color] !== undefined) colorCount[color]++;
+    });
+    return Object.entries(colorCount).sort((a, b) => b[1] - a[1])[0][0];
+  };
+
   const playCard = (card, player = "player") => {
     if (!isPlayable(card, topCard, chosenColor)) return;
 
-    // remove only ONE instance of the card
     if (player === "player") {
       setPlayerHand((prev) => {
         const newHand = [...prev];
-        const idx = newHand.findIndex((c) => c === card);
+        const idx = newHand.indexOf(card);
         if (idx !== -1) newHand.splice(idx, 1);
         return newHand;
       });
     } else {
       setOpponentHand((prev) => {
         const newHand = [...prev];
-        const idx = newHand.findIndex((c) => c === card);
+        const idx = newHand.indexOf(card);
         if (idx !== -1) newHand.splice(idx, 1);
         return newHand;
       });
     }
 
-    // put on discard pile
     setDiscardPile((prev) => [...prev, card]);
     setChosenColor(null);
 
     const other = player === "player" ? "opponent" : "player";
-    let nextTurn = other; // default: next player's turn
+    let nextTurn = other;
 
-    // ACTION CARD HANDLING
     if (card.includes("draw2")) {
       const newCards = Array.from({ length: 2 }, () => getRandomCard());
-      if (other === "player") setPlayerHand((prev) => [...prev, ...newCards]);
-      else setOpponentHand((prev) => [...prev, ...newCards]);
+      other === "player"
+        ? setPlayerHand((p) => [...p, ...newCards])
+        : setOpponentHand((o) => [...o, ...newCards]);
       nextTurn = player;
     } else if (card.includes("wild_draw4")) {
       const newCards = Array.from({ length: 4 }, () => getRandomCard());
-      if (other === "player") setPlayerHand((prev) => [...prev, ...newCards]);
-      else setOpponentHand((prev) => [...prev, ...newCards]);
-      nextTurn = player;
-      setShowColorModal(true);
-    } else if (card.includes("skip")) {
-    nextTurn = player;
-    } else if (card.includes("reverse")) {
+      other === "player"
+        ? setPlayerHand((p) => [...p, ...newCards])
+        : setOpponentHand((o) => [...o, ...newCards]);
+      if (player === "player") {
+        setShowColorModal(true);
+      } else {
+        // Opponent picks random color
+        setChosenColor(pickBestColor(opponentHand));
+      }
+    } else if (card.includes("skip") || card.includes("reverse")) {
       nextTurn = player;
     } else if (card.startsWith("wild")) {
-      setShowColorModal(true);
+      if (player === "player") {
+        setShowColorModal(true);
+      } else {
+        // Opponent picks random color
+        setChosenColor(pickBestColor(opponentHand));
+      }
     }
-
     setTurn(nextTurn);
   };
 
-
-  const drawCard = (player = "player") => {
+  const drawCard = (who = "player") => {
     const card = getRandomCard();
-    if (player === "player") {
+    if (who === "player") {
       const newHand = [...playerHand, card];
       setPlayerHand(newHand);
-
-      // If playable, must play it immediately
       if (isPlayable(card, topCard, chosenColor)) {
-        setTurn("player")
+       setTurn("player"); // auto play if valid
       } else {
         setTurn("opponent");
       }
     } else {
       const newHand = [...opponentHand, card];
       setOpponentHand(newHand);
-
-      // Opponent auto plays if possible
-      if (isPlayable(card, topCard, chosenColor)) {
-        playCard(card, "opponent");
-      } else {
-        setTurn("player");
-      }
+      if (isPlayable(card, topCard, chosenColor)) playCard(card, "opponent");
+      else setTurn("player");
     }
   };
+
 
   useEffect(() => {
     if (opponentHand.length === 0) setWinner("opponent");
@@ -215,105 +221,243 @@ export default function App() {
   useEffect(() => {
     if (turn === "opponent" && !winner) {
       setTimeout(() => {
-        const playable = opponentHand.find((c) =>
-          isPlayable(c, topCard, chosenColor)
-        );
-        if (playable) {
-          playCard(playable, "opponent");
-        } else {
-          drawCard("opponent");
-        }
+        const playable = opponentHand.find((c) => isPlayable(c, topCard, chosenColor));
+        playable ? playCard(playable, "opponent") : drawCard("opponent");
       }, 1200);
     }
   }, [turn, opponentHand]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>UNO Game</Text>
+    <LinearGradient colors={["#111", "#222", "#000"]} style={styles.container}>
+      <Text style={styles.title}>🔥 UNO 🔥</Text>
+      
 
-      {/* Opponent hand */}
-      <View style={styles.opponentHand}>
-        {opponentHand.map((_, i) => (
-          <Image
-            key={i}
-            source={cardImages["back"]}
-            style={styles.cardBack}
-          />
-        ))}
-      </View>
-      <Text>Opponent: {opponentHand.length} cards</Text>
-
-      {/* Discard pile */}
-      <View style={styles.center}>
-        {topCard && <Image source={cardImages[topCard]} style={styles.card} />}
-        <TouchableOpacity onPress={() => turn === "player" && drawCard()}>
-          <Image source={cardImages["back"]} style={styles.card} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Player hand */}
-      <View style={styles.playerHand}>
-        {playerHand.map((card, i) => (
-          <TouchableOpacity
-            key={i}
-            onPress={() => turn === "player" && playCard(card)}
-          >
-            <Image source={cardImages[card]} style={styles.card} />
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {winner && (
-        <View style={styles.overlay}>
-          <Text style={styles.winnerText}>
-            {winner === "player" ? "You Win!" : "Opponent Wins!"}
-          </Text>
-          <Button title="Restart" onPress={startGame} />
-        </View>
-      )}
-
-      {/* Color choose modal */}
-      <Modal transparent={true} visible={showColorModal} animationType="slide">
-        <View style={styles.modal}>
-          <Text>Choose a color</Text>
-          {["red", "green", "blue", "yellow"].map((color) => (
-            <Button
-              color={color}
-              key={color}
-              title={color}
-              onPress={() => {
-                setChosenColor(color);
-                setShowColorModal(false);
-                
-              }}
+      {/* Opponent */}
+      <View style={styles.section}>
+        <Text style={styles.label}>👤 Opponent ({opponentHand.length})</Text>
+        <View style={styles.opponentHand}>
+          {opponentHand.map((_, i) => (
+            <Animated.Image
+              entering={FadeInDown.delay(i * 50)}
+              key={i}
+              source={cardImages.back}
+              style={styles.cardBack}
+              pointerEvents="none"
             />
           ))}
         </View>
+      </View>
+
+      {/* Center Table */}
+      <View style={styles.table}>
+        {topCard && (
+          <Animated.Image
+            source={cardImages[topCard]}
+            style={styles.card}
+            entering={FadeInUp}
+            layout={Layout.springify()}
+            pointerEvents="none"
+          />
+        )}
+
+        {/* Current Color Indicator */}
+        {(chosenColor || topCard) && (
+          <View style={[styles.colorIndicator, { backgroundColor: chosenColor || topCard.split("_")[0] }, {left: 5}]} />
+        )}
+
+        {/* Draw pile stack */}
+        <View style={styles.drawPile} pointerEvents="box-none">
+          {/* background stacked cards - ignore touches */}
+          <Image
+            source={cardImages.back}
+            style={[styles.card, styles.pileCard, { top: -6, left: -6 }]}
+            pointerEvents="none"
+          />
+          <Image
+            source={cardImages.back}
+            style={[styles.card, styles.pileCard, { top: -3, left: -3 }]}
+            pointerEvents="none"
+          />
+
+          {/* clickable card on top (Touchable itself is absolute and has high zIndex) */}
+          <TouchableOpacity
+            onPress={() => {
+              if (turn === "player") drawCard();
+            }}
+            hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+            activeOpacity={0.85}
+            style={[styles.card, styles.pileCard, styles.drawTouchable, { top: -5, left: -5 }]}
+          >
+            {/* inner image should not block touches (touches handled by TouchableOpacity) */}
+            <Image source={cardImages.back} style={styles.card} pointerEvents="none" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Player */}
+      <View style={styles.section}>
+        <Text style={styles.label}>🙋 You ({playerHand.length})</Text>
+        <Text style={styles.turnIndicator}>
+          {turn === "player" ? "👉 Your Turn" : "🤖 Opponent's Turn"}
+        </Text>
+        <View style={styles.playerHand}>
+          {playerHand.map((card, i) => (
+            <Animated.View
+              key={i}
+              entering={FadeInUp.delay(i * 50)}
+              layout={Layout.springify()}
+            >
+              <TouchableOpacity onPress={() => turn === "player" && playCard(card)}>
+                <Image
+                  source={cardImages[card]}
+                  style={[
+                    styles.card,
+                    isPlayable(card, topCard, chosenColor) && styles.playableCard,
+                  ]}
+                />
+              </TouchableOpacity>
+            </Animated.View>
+          ))}
+        </View>
+      </View>
+
+      {/* Winner Banner */}
+      {winner && (
+        <View style={styles.overlay}>
+          <View style={styles.banner}>
+            <Text style={styles.winnerText}>
+              {winner === "player" ? "🎉 You Win!" : "💀 Opponent Wins!"}
+            </Text>
+            <Pressable style={styles.restartBtn} onPress={startGame}>
+              <Text style={styles.restartText}>Restart</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {/* Color Modal */}
+      <Modal transparent visible={showColorModal} animationType="fade">
+        <View style={styles.modal}>
+          <Text style={styles.modalText}>Pick a color</Text>
+          <View style={styles.colorRow}>
+            {["red", "green", "blue", "yellow"].map((c) => (
+              <Pressable
+                key={c}
+                style={[styles.colorBtn, { backgroundColor: c }]}
+                onPress={() => {
+                  setChosenColor(c);
+                  setShowColorModal(false);
+                  setTurn(turn === "player" ? "opponent" : "player");
+                }}
+              />
+            ))}
+          </View>
+        </View>
       </Modal>
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#222", alignItems: "center" },
-  title: { fontSize: 30, color: "yellow", marginTop: 50  },
-  opponentHand: { flexDirection: "row", flexWrap: "wrap", marginTop: 10, marginLeft: 10 },
-  playerHand: { flexDirection: "row", flexWrap: "wrap", marginTop: 30, marginLeft: 10},
-  center: { flexDirection: "row", marginTop: 40, marginBottom: 20 },
-  card: { width: 60, height: 90, margin: 5, borderRadius: 10 },
-  cardBack: { width: 60, height: 90, margin: 5,borderRadius: 10 },
-  overlay: {
-    position: "absolute",
-    top: 200,
-    left: 0,
-    right: 0,
+  container: { flex: 1, alignItems: "center", paddingTop: 40 },
+  title: { fontSize: 36, fontWeight: "bold", color: "#ff5252", marginBottom: 5 },
+  turnIndicator: { fontSize: 20, fontWeight: "bold", color: "#ffd700", marginBottom: 10 },
+  section: { alignItems: "center", marginVertical: 10 },
+  label: { fontSize: 18, color: "#fff", marginBottom: 5 },
+  opponentHand: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center" },
+  playerHand: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center" },
+  table: {
+    marginVertical: 20,
+    padding: 20,
+    borderRadius: 20,
+    backgroundColor: "#333",
+    flexDirection: "row",
+    justifyContent: "space-around",
     alignItems: "center",
   },
-  winnerText: { fontSize: 40, color: "yellow", marginBottom: 20 },
+  card: {
+    width: 70,
+    height: 100,
+    margin: 5,
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  cardBack: {
+    width: 45,
+    height: 65,
+    margin: 2,
+    borderRadius: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  playableCard: {
+    borderWidth: 3,
+    borderColor: "#0f0",
+    borderRadius: 10,
+  },
+  drawPile: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pileCard: {
+    position: "absolute",
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.7)",
+  },
+  banner: {
+    backgroundColor: "#222",
+    padding: 20,
+    borderRadius: 15,
+    alignItems: "center",
+  },
+  winnerText: { fontSize: 28, color: "#fff", marginBottom: 15 },
+  restartBtn: {
+    backgroundColor: "#ff5252",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  restartText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
   modal: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.8)",
+    backgroundColor: "rgba(0,0,0,0.85)",
   },
+  modalText: { color: "#fff", fontSize: 20, marginBottom: 20 },
+  colorRow: { flexDirection: "row", gap: 20 },
+  colorBtn: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    margin: 10,
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  drawTouchable: {
+  zIndex: 0,        // make sure the Touchable is on top (iOS)
+  elevation: 0,     // Android needs elevation for z-order
+  position: "absolute" // ensures zIndex/elevation applies properly
+  },
+  colorIndicator: {
+  width: 10,
+  height: 10,
+  borderRadius: 6,
+  marginleft: 0,
+  marginBottom: 20,
+  borderWidth: 2,
+  borderColor: "#fff",
+  },
+
+
 });

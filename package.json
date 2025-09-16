@@ -1,6 +1,7 @@
 {
-  "name": "uno-client",
-  "version": "1.0.0",
+  "name": "UNO",
+  "icon": "./assets/icon.png",
+  "version": "2.1.0",
   "main": "index.js",
   "scripts": {
     "start": "expo start"
@@ -10,6 +11,7 @@
     "@react-navigation/native-stack": "^7.3.26",
     "babel-preset-expo": "~54.0.0",
     "expo": "^54.0.7",
+    "expo-linear-gradient": "^15.0.7",
     "moti": "^0.30.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
